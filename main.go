@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 func getBranchName() (string, error) {
@@ -14,7 +16,7 @@ func getBranchName() (string, error) {
 		return "", err
 	}
 
-	return string(branchName), nil
+	return strings.TrimSpace(string(branchName)), nil
 }
 
 func getRemoteName() (string, error) {
@@ -25,7 +27,29 @@ func getRemoteName() (string, error) {
 		return "", err
 	}
 
-	return string(remoteName), nil
+	return strings.TrimSpace(string(remoteName)), nil
+}
+
+func getRepoInfo(remoteName *string) (string, string, error) {
+	// get GitHubUsername and repoName
+	// todo handle bitbucket
+	if strings.HasPrefix(*remoteName, "git@") {
+		// todo handle https
+		repoPath := strings.TrimSpace(strings.Split(*remoteName, ":")[1])
+		fmt.Println(repoPath)
+		path := strings.TrimSuffix(repoPath, ".git")
+
+		// todo handle edge cases in string format
+		parts := strings.Split(path, "/")
+
+		username, repoName := parts[0], parts[1]
+
+		return username, repoName, nil
+	}
+
+	err := errors.New("unhandled exception: remote is not SSH or GitHub")
+
+	return "", "", err
 }
 
 func main() {
@@ -35,13 +59,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println(string(branchName))
-
 	remoteName, err := getRemoteName()
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)
 	}
 
-	fmt.Println(string(remoteName))
+	username, repoName, err := getRepoInfo(&remoteName)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
+	// build url
+	// https://github.com<GitHubUsername>/<repoName>/pull/new/<branchName>
+	url := fmt.Sprintf("https://github.com/%s/%s/pull/new/%s", username, repoName, branchName)
+
+	fmt.Println(url)
+	cmd := exec.Command("open", url)
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println("Failed to open URL:", err)
+		os.Exit(1)
+	}
 }
