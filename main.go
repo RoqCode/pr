@@ -76,5 +76,10 @@ func main() {
 	url := fmt.Sprintf("https://github.com/%s/%s/pull/new/%s", username, repoName, branchName)
 
 	fmt.Println(url)
-	exec.Command("open", url)
+	cmd := exec.Command("open", url)
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println("Failed to open URL:", err)
+		os.Exit(1)
+	}
 }
