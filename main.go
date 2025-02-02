@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -30,11 +31,12 @@ func getRemoteName() (string, error) {
 	return strings.TrimSpace(string(remoteName)), nil
 }
 
-func getRepoInfo(remoteName *string) (string, string, error) {
-	// get GitHubUsername and repoName
-	// todo handle bitbucket
-	if strings.HasPrefix(*remoteName, "git@") {
+func getRepoInfo(remoteName *string) (string, string, string, string, error) {
+	if strings.HasPrefix(*remoteName, "git@") || strings.HasPrefix(*remoteName, "ssh://git@") {
+		repoUrl := strings.TrimSpace(strings.Split(*remoteName, "@")[1])
+		repoUrl = strings.Split(repoUrl, ":")[0]
 		// todo handle https
+
 		repoPath := strings.TrimSpace(strings.Split(*remoteName, ":")[1])
 		fmt.Println(repoPath)
 		path := strings.TrimSuffix(repoPath, ".git")
@@ -42,14 +44,51 @@ func getRepoInfo(remoteName *string) (string, string, error) {
 		// todo handle edge cases in string format
 		parts := strings.Split(path, "/")
 
-		username, repoName := parts[0], parts[1]
+		userName := parts[0]
+		var projectName string
+		var repoName string
 
-		return username, repoName, nil
+		if len(parts) == 2 {
+			repoName = parts[1]
+		} else if len(parts) == 3 {
+			projectName = parts[1]
+			repoName = parts[2]
+		} else if len(parts) < 2 || len(parts) > 3 {
+			err := errors.New("invalid remote URL")
+			return "", "", "", "", err
+		}
+
+		return repoUrl, userName, projectName, repoName, nil
 	}
 
-	err := errors.New("unhandled exception: remote is not SSH or GitHub")
+	err := errors.New("unhandled exception: remote is not SSH")
+	return "", "", "", "", err
+}
 
-	return "", "", err
+func buildUrl(repoUrl *string, userName *string, projectName *string, repoName *string, branchName *string) (string, error) {
+	var prUrl string
+	var err error = nil
+
+	if strings.Contains(*repoUrl, "github") {
+		// is github url
+		if *projectName == "" {
+			prUrl = fmt.Sprintf("https://%s/%s/%s/pull/new/%s", *repoUrl, *userName, *repoName, *branchName)
+		} else {
+			prUrl = fmt.Sprintf("https://%s/%s/%s/%s/pull/new/%s", *repoUrl, *userName, *projectName, *repoName, *branchName)
+		}
+	} else if strings.Contains(*repoUrl, "bitbucket") {
+		// is bitbucket url
+		if *projectName == "" {
+			err = errors.New("no projectName found")
+		} else {
+			urlSafeBranchName := url.QueryEscape("refs/heads/" + *branchName)
+			prUrl = fmt.Sprintf("https://%s/projects/%s/repos/%s/pull-requests?create&sourceBranch=%s", *repoUrl, *projectName, *repoName, urlSafeBranchName)
+		}
+	} else {
+		err = errors.New("unrecognized URL format")
+	}
+
+	return prUrl, err
 }
 
 func main() {
@@ -65,21 +104,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	username, repoName, err := getRepoInfo(&remoteName)
+	repoUrl, userName, projectName, repoName, err := getRepoInfo(&remoteName)
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)
 	}
 
-	// build url
-	// https://github.com<GitHubUsername>/<repoName>/pull/new/<branchName>
-	url := fmt.Sprintf("https://github.com/%s/%s/pull/new/%s", username, repoName, branchName)
+	url, err := buildUrl(&repoUrl, &userName, &projectName, &repoName, &branchName)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
 
-	fmt.Println(url)
+	fmt.Println("Opening URL:", url)
 	cmd := exec.Command("open", url)
 	err = cmd.Run()
 	if err != nil {
 		fmt.Println("Failed to open URL:", err)
 		os.Exit(1)
 	}
+
+	// Todo build into binary and add to path?
 }
